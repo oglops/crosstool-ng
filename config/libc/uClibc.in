@@ -36,6 +36,11 @@ config LIBC_UCLIBC_V_0_9_33_2
     prompt "0.9.33.2"
     select LIBC_UCLIBC_0_9_33_2_or_later
 
+config LIBC_UCLIBC_V_0_9_30_2
+    bool
+    prompt "0.9.30.2"
+    select LIBC_UCLIBC_0_9_30_2_or_later
+
 config LIBC_UCLIBC_CUSTOM
     bool
     prompt "Custom uClibc"
@@ -62,7 +67,8 @@ config LIBC_VERSION
 # CT_INSERT_VERSION_STRING_BELOW
     default "1.0.9" if LIBC_UCLIBC_NG_V_1_0_9
     default "0.9.33.2" if LIBC_UCLIBC_V_0_9_33_2
-
+    default "0.9.30.2" if LIBC_UCLIBC_V_0_9_30_2
+    
 config LIBC_UCLIBC_NG_1_0_9_or_later
     bool
     select LIBC_UCLIBC_NG_1_0_0_or_later
