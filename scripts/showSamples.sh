@@ -1,6 +1,3 @@
-#!/bin/sh
-# Yes, this is supposed to be a POSIX-compliant shell script.
-
 # Parses all samples on the command line, and for each of them, prints
 # the versions of the main tools
 
@@ -101,7 +98,7 @@ dump_single_sample() {
             cc=$(echo ${CT_CC} | ${awk} '{ print toupper($0)}')
             version=$(eval echo \${CT_CC_${cc}_VERSION})
             compiler=$(echo $cc | ${awk} '{print tolower($0)}')
-            printf " $compiler  |  $version"
+            printf " $compiler-$version"
             printf "\n"
             printf  "    %-*s : %s" ${width} "Languages" "C"
             [ "${CT_CC_LANG_CXX}" = "y"     ] && printf ",C++"
@@ -116,7 +113,6 @@ dump_single_sample() {
             printf  "    %-*s : %s (threads: %s)\n" ${width} "C library" "${libc_name}${libc_ver:+-}${libc_ver}" "${CT_THREADS}"
             printf  "    %-*s :" ${width} "Tools"
             [ "${CT_TOOL_sstrip}"   ] && printf " sstrip"
-            [ "${CT_DEBUG_dmalloc}" ] && printf " dmalloc-${CT_DMALLOC_VERSION}"
             [ "${CT_DEBUG_duma}"    ] && printf " duma-${CT_DUMA_VERSION}"
             [ "${CT_DEBUG_gdb}"     ] && printf " gdb-${CT_GDB_VERSION}"
             [ "${CT_DEBUG_ltrace}"  ] && printf " ltrace-${CT_LTRACE_VERSION}"

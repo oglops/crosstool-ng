@@ -8,16 +8,16 @@ do_binutils_get() {
         CT_GetCustom "binutils" "${CT_BINUTILS_CUSTOM_VERSION}" \
             "${CT_BINUTILS_CUSTOM_LOCATION}"
     else
-        if echo ${CT_BINUTILS_VERSION} |${grep} -q linaro; then
-            YYMM=`echo ${CT_BINUTILS_VERSION} |cut -d- -f3 |${sed} -e 's,^..,,'`
-            CT_GetFile "binutils-${CT_BINUTILS_VERSION}"                                        \
-                       https://releases.linaro.org/${YYMM}/components/toolchain/binutils-linaro \
-                       http://cbuild.validation.linaro.org/snapshots
-        else
-            CT_GetFile "binutils-${CT_BINUTILS_VERSION}"                                        \
-                       {http,ftp}://{ftp.gnu.org/gnu,ftp.kernel.org/pub/linux/devel}/binutils   \
-                       ftp://{sourceware.org,gcc.gnu.org}/pub/binutils/{releases,snapshots}
-        fi
+        case "${CT_BINUTILS_VERSION}" in
+            linaro-*)
+                CT_GetLinaro "binutils" "${CT_BINUTILS_VERSION}"
+                ;;
+            *)
+                CT_GetFile "binutils-${CT_BINUTILS_VERSION}"                                        \
+                           {http,ftp}://{ftp.gnu.org/gnu,ftp.kernel.org/pub/linux/devel}/binutils   \
+                           ftp://{sourceware.org,gcc.gnu.org}/pub/binutils/{releases,snapshots}
+                ;;
+        esac
     fi
 
     if [ -n "${CT_ARCH_BINFMT_FLAT}" ]; then
@@ -25,7 +25,7 @@ do_binutils_get() {
             CT_GetCustom "elf2flt" "${CT_ELF2FLT_CUSTOM_VERSION}" \
                 "${CT_ELF2FLT_CUSTOM_LOCATION}"
         else
-            CT_GetGit elf2flt "${CT_ELF2FLT_GIT_CSET}" http://cgit.openadk.org/cgi/cgit/elf2flt.git
+            CT_GetGit elf2flt "${CT_ELF2FLT_GIT_CSET}" https://github.com/uclinux-dev/elf2flt.git
         fi
     fi
 }
@@ -82,7 +82,6 @@ do_binutils_for_build() {
 
 # Build binutils for host -> target
 do_binutils_for_host() {
-    local -a binutils_tools
     local -a binutils_opts
 
     CT_DoStep INFO "Installing binutils for host"
@@ -118,26 +117,13 @@ do_binutils_for_host() {
     # are not executable on the build machine.
     case "${CT_TOOLCHAIN_TYPE}" in
         cross|native)
-            binutils_tools=( ar as ld ranlib strip )
-            if [ -n "${CT_ARCH_BINFMT_FLAT}" ]; then
-                binutils_tools+=( elf2flt flthdr )
-            fi
-            case "${CT_BINUTILS_LINKERS_LIST}" in
-                ld)         binutils_tools+=( ld.bfd ) ;;
-                gold)       binutils_tools+=( ld.gold ) ;;
-                ld,gold)    binutils_tools+=( ld.bfd ld.gold ) ;;
-                gold,ld)    binutils_tools+=( ld.bfd ld.gold ) ;;
-            esac
-            mkdir -p "${CT_BUILDTOOLS_PREFIX_DIR}/${CT_TARGET}/bin"
             mkdir -p "${CT_BUILDTOOLS_PREFIX_DIR}/bin"
-            for t in "${binutils_tools[@]}"; do
-                CT_DoExecLog ALL ln -sv                                         \
-                                    "${CT_PREFIX_DIR}/bin/${CT_TARGET}-${t}"    \
-                                    "${CT_BUILDTOOLS_PREFIX_DIR}/${CT_TARGET}/bin/${t}"
-                CT_DoExecLog ALL ln -sv                                         \
-                                    "${CT_PREFIX_DIR}/bin/${CT_TARGET}-${t}"    \
-                                    "${CT_BUILDTOOLS_PREFIX_DIR}/bin/${CT_TARGET}-${t}"
-            done
+            CT_SymlinkTools "${CT_BUILDTOOLS_PREFIX_DIR}/bin" \
+                "${CT_PREFIX_DIR}/bin" \
+                "${CT_TARGET}"
+            CT_DoExecLog ALL mkdir -p "${CT_BUILDTOOLS_PREFIX_DIR}/${CT_TARGET}"
+            CT_DoExecLog ALL ln -sv "${CT_PREFIX_DIR}/${CT_TARGET}/bin" \
+                "${CT_BUILDTOOLS_PREFIX_DIR}/${CT_TARGET}/bin"
             ;;
         *)  ;;
     esac
@@ -213,9 +199,14 @@ do_binutils_backend() {
     CT_DoLog DEBUG "Extra config passed: '${extra_config[*]}'"
 
     CT_DoExecLog CFG                                            \
+    CC_FOR_BUILD="${CT_BUILD}-gcc"                              \
+    CFLAGS_FOR_BUILD="${CT_CFLAGS_FOR_BUILD}"                   \
+    CXXFLAGS_FOR_BUILD="${CT_CFLAGS_FOR_BUILD}"                 \
+    LDFLAGS_FOR_BUILD="${CT_LDFLAGS_FOR_BUILD}"                 \
     CFLAGS="${cflags}"                                          \
     CXXFLAGS="${cflags}"                                        \
     LDFLAGS="${ldflags}"                                        \
+    ${CONFIG_SHELL}                                             \
     "${CT_SRC_DIR}/binutils-${CT_BINUTILS_VERSION}/configure"   \
         --build=${CT_BUILD}                                     \
         --host=${host}                                          \
@@ -230,14 +221,14 @@ do_binutils_backend() {
     if [ "${static_build}" = "y" ]; then
         extra_make_flags+=("LDFLAGS=${ldflags} -all-static")
         CT_DoLog EXTRA "Prepare binutils for static build"
-        CT_DoExecLog ALL ${make} ${JOBSFLAGS} configure-host
+        CT_DoExecLog ALL make ${JOBSFLAGS} configure-host
     fi
 
     CT_DoLog EXTRA "Building binutils"
-    CT_DoExecLog ALL ${make} "${extra_make_flags[@]}" ${JOBSFLAGS}
+    CT_DoExecLog ALL make "${extra_make_flags[@]}" ${JOBSFLAGS}
 
     CT_DoLog EXTRA "Installing binutils"
-    CT_DoExecLog ALL ${make} install
+    CT_DoExecLog ALL make install
 
     if [ "${build_manuals}" = "y" ]; then
         CT_DoLog EXTRA "Building and installing the binutils manuals"
@@ -245,10 +236,10 @@ do_binutils_backend() {
         if [ "${CT_BINUTILS_LINKER_GOLD}" = "y" ]; then
             manuals_for+=( gold )
         fi
-        manuals_install=( "${manuals_for[@]/\#/install-pdf-}" )
-        manuals_install+=( "${manuals_for[@]/\#/install-html-}" )
-        CT_DoExecLog ALL ${make} ${JOBSFLAGS} pdf html
-        CT_DoExecLog ALL ${make} "${manuals_install[@]}"
+        manuals_install=( "${manuals_for[@]/#/install-pdf-}" )
+        manuals_install+=( "${manuals_for[@]/#/install-html-}" )
+        CT_DoExecLog ALL make ${JOBSFLAGS} pdf html
+        CT_DoExecLog ALL make "${manuals_install[@]}"
     fi
 
     # Install the wrapper if needed
@@ -256,7 +247,7 @@ do_binutils_backend() {
         CT_DoLog EXTRA "Installing ld wrapper"
         rm -f "${prefix}/bin/${CT_TARGET}-ld"
         rm -f "${prefix}/${CT_TARGET}/bin/ld"
-        ${sed} -r -e "s/@@DEFAULT_LD@@/${CT_BINUTILS_LINKER_DEFAULT}/" \
+        sed -r -e "s/@@DEFAULT_LD@@/${CT_BINUTILS_LINKER_DEFAULT}/" \
             "${CT_LIB_DIR}/scripts/build/binutils/binutils-ld.in"      \
             >"${prefix}/bin/${CT_TARGET}-ld"
         chmod +x "${prefix}/bin/${CT_TARGET}-ld"
@@ -299,7 +290,7 @@ do_elf2flt_backend() {
     CT_DoExecLog CFG                                            \
     CFLAGS="${cflags}"                                          \
     LDFLAGS="${ldflags}"                                        \
-    LIBS="-ldl"                                                 \
+    ${CONFIG_SHELL}                                             \
     "${CT_SRC_DIR}/elf2flt-${CT_ELF2FLT_VERSION}/configure"     \
         --build=${CT_BUILD}                                     \
         --host=${host}                                          \
@@ -309,14 +300,15 @@ do_elf2flt_backend() {
         --with-binutils-include-dir=${binutils_src}/include     \
         --with-libbfd=${binutils_bld}/bfd/libbfd.a              \
         --with-libiberty=${binutils_bld}/libiberty/libiberty.a  \
+        --disable-werror                                        \
         ${elf2flt_opts}                                         \
         "${CT_ELF2FLT_EXTRA_CONFIG_ARRAY[@]}"
 
     CT_DoLog EXTRA "Building elf2flt"
-    CT_DoExecLog ALL ${make} ${JOBSFLAGS}
+    CT_DoExecLog ALL make ${JOBSFLAGS} CPU=${CT_ARCH}
 
     CT_DoLog EXTRA "Installing elf2flt"
-    CT_DoExecLog ALL ${make} install
+    CT_DoExecLog ALL make install
 }
 
 # Now on for the target libraries
@@ -358,6 +350,7 @@ do_binutils_for_target() {
         [ "${CT_TOOLCHAIN_ENABLE_NLS}" != "y" ] && extra_config+=("--disable-nls")
 
         CT_DoExecLog CFG                                            \
+        ${CONFIG_SHELL}                                             \
         "${CT_SRC_DIR}/binutils-${CT_BINUTILS_VERSION}/configure"   \
             --build=${CT_BUILD}                                     \
             --host=${CT_TARGET}                                     \
@@ -371,9 +364,9 @@ do_binutils_for_target() {
             "${CT_BINUTILS_EXTRA_CONFIG_ARRAY[@]}"
 
         CT_DoLog EXTRA "Building binutils' libraries (${targets[*]}) for target"
-        CT_DoExecLog ALL ${make} ${JOBSFLAGS} "${build_targets[@]}"
+        CT_DoExecLog ALL make ${JOBSFLAGS} "${build_targets[@]}"
         CT_DoLog EXTRA "Installing binutils' libraries (${targets[*]}) for target"
-        CT_DoExecLog ALL ${make} DESTDIR="${CT_SYSROOT_DIR}" "${install_targets[@]}"
+        CT_DoExecLog ALL make DESTDIR="${CT_SYSROOT_DIR}" "${install_targets[@]}"
 
         CT_Popd
         CT_EndStep
